@@ -26,6 +26,7 @@ local Featherfall = {
     platform_pause_coyote = 0,
     platform_hitstop = 0,
     platform_hitstop_pending = 0,
+    camera_restore_pending = false,
 }
 
 _G.Featherfall = Featherfall
@@ -206,6 +207,7 @@ function Featherfall:resetControllerState()
     self.platform_pause_coyote = 0
     self.platform_hitstop = 0
     self.platform_hitstop_pending = 0
+    self.camera_restore_pending = false
     self.dynamic_platforms = {}
     self:resetPlatformCamera()
     self:clearPetalWings(true)
@@ -874,6 +876,23 @@ end
 
 function Featherfall:resetPlatformCamera()
     self.platform_camera = nil
+end
+
+function Featherfall:restoreOverworldCamera()
+    local world = Game.world
+    local camera = world and world.camera
+    self:resetPlatformCamera()
+    self.camera_restore_pending = false
+    if not camera then
+        return
+    end
+
+    camera.pan_target = nil
+    if world.setCameraAttached then
+        world:setCameraAttached(true, true)
+    else
+        camera:setAttached(true, true)
+    end
 end
 
 function Featherfall:getPlatformCameraState(camera)
@@ -1912,6 +1931,9 @@ function Featherfall:beginTransition(source, target_mode)
     self.transition_timemax = type(source) == "table" and source.timer_max or self.constants.transition_timemax
     self.transition_extra_time = 0
     self.transition_mode = target_mode or self.transition_mode or 0
+    if self.transition_mode == 1 then
+        self.camera_restore_pending = false
+    end
 
     if self.transition_mode == 1 and self.transition_timemax > self.constants.transition_extra_threshold then
         self.transition_extra_time = self.constants.transition_extra_time
@@ -2018,6 +2040,9 @@ function Featherfall:onTransitionPropFinished(prop)
 
     self.transition_prop = nil
     self:restorePlayerVisual()
+    if self.camera_restore_pending and self.transition_mode == 0 and not self:isPlatformModeActive() then
+        self:restoreOverworldCamera()
+    end
 end
 
 function Featherfall:onFollowerTransitionPropFinished(follower, prop)
@@ -2130,12 +2155,14 @@ function Featherfall:spawnFollowerTransitionProp(follower, animation_name, start
     return self.follower_transition_props[follower]
 end
 
-function Featherfall:putPlayerInState(source)
+function Featherfall:putPlayerInState(source, settings)
     if Game.world and Game.world.player and Game.world.player.state_manager:hasState(self.state) then
         if not (self.platform_camera and self.transition_prop and self.transition_prop.parent) then
             self:resetPlatformCamera()
         end
-        Game.world.player:setState(self.state, { source = source })
+        settings = settings or {}
+        settings.source = source
+        Game.world.player:setState(self.state, settings)
         if self.transition_prop and self.transition_prop.parent then
             self.transition_prop:setTarget(Game.world.player.x, Game.world.player.y, self.constants.transition_platform_delay, "linear")
         end
@@ -2326,11 +2353,61 @@ function Featherfall:exitPlatformMode(source, options)
     end
     self.pending_platform = false
     self.platforming = false
+    self.camera_restore_pending = true
     Game.world.player:setState("WALK")
     if self.transition_prop and self.transition_prop.parent then
         self:hidePlayerVisual()
     end
     return true
+end
+
+function Featherfall:beginPlatformMapTransfer()
+    local world = Game.world
+    local player = world and world.player
+    if not (player and self:isPlatformModeActive()) then
+        return
+    end
+
+    local state = player.platform_state
+    local active = player.state == self.state or self.platforming
+    if not active then
+        return
+    end
+
+    return {
+        active = true,
+        hspeed = state and state.hspeed or 0,
+        vspeed = state and state.vspeed or 0,
+        facing = player.getFacing and player:getFacing() or player.facing,
+    }
+end
+
+function Featherfall:finishPlatformMapTransfer(transfer)
+    if not (transfer and transfer.active and Game.world and Game.world.player) then
+        return
+    end
+
+    self.transition_timer = 0
+    self.transition_extra_time = 0
+    self.transition_projection_hold = 0
+    self.transition_source = nil
+    self.transition_prop = nil
+    self.follower_transition_props = {}
+    self.transition_visual_owner = nil
+    self.follower_visual_owners = {}
+    self.pending_platform = false
+    self.platforming = false
+    self.camera_restore_pending = false
+    self.action_ui = nil
+
+    if transfer.facing and Game.world.player.setFacing then
+        Game.world.player:setFacing(transfer.facing)
+    end
+
+    self:putPlayerInState(nil, {
+        hspeed = transfer.hspeed or 0,
+        vspeed = transfer.vspeed or 0,
+    })
 end
 
 function Featherfall:togglePlatformMode(source)
@@ -2360,6 +2437,9 @@ function Featherfall:postUpdate()
     self.transition_timer = MathUtils.approach(self.transition_timer, 0, DTMULT)
     if was_transitioning and self.transition_timer <= 0 and self.transition_mode == 0 then
         self.transition_projection_hold = 2
+        if self.camera_restore_pending then
+            self:restoreOverworldCamera()
+        end
     end
     if self.pending_platform and self.transition_timer <= self.transition_timemax - self.constants.transition_platform_delay then
         self.pending_platform = false

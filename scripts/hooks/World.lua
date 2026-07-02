@@ -34,4 +34,16 @@ function World:canOpenMenu()
     return super.canOpenMenu(self)
 end
 
+function World:loadMap(...)
+    local platform_transfer = Featherfall
+        and Featherfall.beginPlatformMapTransfer
+        and Featherfall:beginPlatformMapTransfer()
+
+    super.loadMap(self, ...)
+
+    if Featherfall and Featherfall.finishPlatformMapTransfer then
+        Featherfall:finishPlatformMapTransfer(platform_transfer)
+    end
+end
+
 return World
