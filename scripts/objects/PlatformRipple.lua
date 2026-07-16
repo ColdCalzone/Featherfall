@@ -87,9 +87,10 @@ function PlatformRipple:draw()
         love.graphics.setBlendMode("add", "alphamultiply")
     end
 
-    love.graphics.setLineWidth(math.max(thickness * 0.5, 1))
+    love.graphics.setLineWidth(math.max(thickness, 1))
     Draw.setColor(self.r, self.g, self.b, alpha)
-    love.graphics.ellipse("line", 0, 0, radius, radius * self.yratio)
+    local line_radius = math.max(radius - (thickness / 2), 0)
+    love.graphics.ellipse("line", 0, 0, line_radius, line_radius * self.yratio)
 
     love.graphics.setLineWidth(old_width)
     love.graphics.setBlendMode(old_blend, old_alpha)

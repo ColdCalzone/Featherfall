@@ -1107,10 +1107,10 @@ function FollowerPlatformState:applyCaterpillarTarget(target_x, target_y, target
     if self.entity then
         self.entity.hspeed = 0
         self.entity.vspeed = 0
-    end
-    if target_ground and self.entity then
         self.entity.ground = target_ground
-        self.entity.grounded = true
+        if target_ground then
+            self.entity.grounded = true
+        end
     end
     self:syncFromEntity()
     self.hspeed = visual_hspeed
@@ -1424,13 +1424,35 @@ function FollowerPlatformState:onEnter(old_state, settings)
     self:setFollowerAnimation("idle")
 end
 
+function FollowerPlatformState:finishEntryTransition(player)
+    self.transition_entry_pending = false
+    self.history_step_timer = 0
+    self.offscreen_despawn_cooldown = 10
+
+    if self.entity then
+        self.entity:reset({
+            hspeed = 0,
+            vspeed = 0,
+            grounded = false,
+        })
+        local ground = self.entity:findGroundAt(self.follower.x, self.follower.y, 706)
+        if ground then
+            self.entity:landOn(ground)
+            self.entity.grounded_prev = true
+        end
+        self:syncFromEntity()
+    end
+
+    self:seedCaterpillarHistory(player)
+end
+
 function FollowerPlatformState:onUpdate()
     local player = Game.world and Game.world.player
     if self.transition_entry_pending then
         if Featherfall.transition_timer > 0 then
             return
         end
-        self.transition_entry_pending = false
+        self:finishEntryTransition(player)
     end
     self:updateActionOutline()
     if self:updateTargetModePause(player) then

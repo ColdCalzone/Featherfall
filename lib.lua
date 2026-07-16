@@ -103,6 +103,7 @@ Featherfall.sounds = {
     torii_sparkle = "sparkle_glock",
     petal_grab = "grab",
     petal_drain = "petaldrain",
+    transition_flip = "dtrans_flip",
     attack_1 = "smallswing",
     attack_2 = "heavyswing",
     attack_3 = "ultraswing",
@@ -516,9 +517,7 @@ function Featherfall:isPlatformModeActive()
 end
 
 function Featherfall:isTransitioning()
-    -- local offset = self.transition_mode == 1 and self.transition_extra_time or 0
-    local offset = 0
-    return (self.transition_timer - offset) > 0
+    return self.transition_timer > 0
 end
 
 function Featherfall:isPlatformPauseRequested()
@@ -2133,6 +2132,9 @@ function Featherfall:getOverworldExitPropPosition(source, player, exit_x, exit_y
 end
 
 function Featherfall:spawnTransitionProp(animation_name, target_x, target_y, start_frame, options)
+    options = options or {}
+    options.role = options.role or "leader"
+    options.core_duration = options.core_duration or self.transition_timemax
     if self.transition_prop and self.transition_prop.parent then
         self.transition_prop.suppress_finish = true
         self.transition_prop:remove()
@@ -2144,13 +2146,17 @@ function Featherfall:spawnTransitionProp(animation_name, target_x, target_y, sta
     end
 
     local player = Game.world.player
+    local duration = options.duration
+    if duration == nil then
+        duration = options.kind == "enter" and self.transition_timer or self.transition_timemax
+    end
     local prop = PlatformTransitionProp(
         player.actor,
         player.x,
         player.y,
         self:getPlayerFacing(),
         animation_name or "jump_down",
-        self.transition_timemax,
+        duration,
         target_x,
         target_y,
         start_frame,
@@ -2165,6 +2171,13 @@ function Featherfall:spawnTransitionProp(animation_name, target_x, target_y, sta
     else
         self.transition_prop:setLayer(player.layer)
     end
+    if options.kind == "enter" and target_y == nil then
+        local ground_y = self.transition_prop:findPlatformGroundY(target_x or player.x, player.y)
+        if ground_y ~= nil then
+            self.transition_prop.target_y = ground_y
+            self.transition_platform_target_y = ground_y
+        end
+    end
     self:hidePlayerVisual()
     self:beginPlatformCameraTransition(self.transition_prop)
     return self.transition_prop
@@ -2172,6 +2185,8 @@ end
 
 function Featherfall:spawnFollowerTransitionProp(follower, animation_name, start_x, start_y, target_x, target_y, start_frame, options)
     options = options or {}
+    options.role = options.role or "follower"
+    options.core_duration = options.core_duration or self.transition_timemax
     if not (Game.world and follower and PlatformTransitionProp) then
         return nil
     end
@@ -2209,7 +2224,8 @@ end
 
 function Featherfall:putPlayerInState(source, settings)
     if Game.world and Game.world.player and Game.world.player.state_manager:hasState(self.state) then
-        if not (self.platform_camera and self.transition_prop and self.transition_prop.parent) then
+        local completing_entry = self.pending_platform and self.transition_mode == 1
+        if not completing_entry and not (self.platform_camera and self.transition_prop and self.transition_prop.parent) then
             self:resetPlatformCamera()
         end
         settings = settings or {}
@@ -2234,9 +2250,6 @@ function Featherfall:putPlayerInState(source, settings)
         end
         settings.source = source
         Game.world.player:setState(self.state, settings)
-        if self.transition_prop and self.transition_prop.parent then
-            self.transition_prop:setTarget(Game.world.player.x, Game.world.player.y, self.constants.transition_platform_delay, "linear")
-        end
         self.platforming = true
         self.transition_platform_target_x = nil
         self.transition_platform_target_y = nil
@@ -2276,8 +2289,12 @@ function Featherfall:putFollowersInState(source, settings)
     for index, follower in ipairs(Game.world.followers) do
         if follower.state_manager and follower.state_manager:hasState(self.state) then
             if follower.state_manager.state == self.state and follower.platform_state then
-                if settings.transition_pending == true or self.transition_timer <= 0 then
+                if settings.transition_pending == true then
                     follower.platform_state.transition_entry_pending = settings.transition_pending == true
+                elseif self.transition_timer <= 0 and follower.platform_state.transition_entry_pending
+                    and follower.platform_state.finishEntryTransition
+                then
+                    follower.platform_state:finishEntryTransition(Game.world.player)
                 end
             else
                 follower.state_manager:setState(self.state, {
@@ -2350,7 +2367,18 @@ function Featherfall:getFollowerOverworldExitPosition(follower, source)
             return x, y
         end
     end
-    return self:getOverworldFollowerPosition(follower and follower.index or 1)
+    local player = Game.world and Game.world.player
+    if not (follower and player) then
+        return
+    end
+
+    local index = self:getPlatformFollowerIndex(follower)
+    local actor = follower.actor
+    if actor and actor.getPlatformTransitionExitOffset then
+        local offset_x, offset_y = actor:getPlatformTransitionExitOffset(index, #(Game.world.followers or {}))
+        return player.x + (offset_x or 0), player.y + (offset_y or 0)
+    end
+    return player.x + self:getPlatformFollowerOffset(follower, index), player.y
 end
 
 function Featherfall:resetFollowerHistoryForOverworld(state)
@@ -2374,7 +2402,16 @@ function Featherfall:resetFollowerHistoryForOverworld(state)
         state_args = {},
     })
     for index = 1, max_followers do
-        local x, y = self:getOverworldFollowerPosition(index, player, facing)
+        local follower = Game.world.followers and Game.world.followers[index]
+        local use_transition_position = self.transition_mode == 0
+            and self.transition_timer > 0
+            and follower ~= nil
+        local x, y
+        if use_transition_position then
+            x, y = follower.x, follower.y
+        else
+            x, y = self:getOverworldFollowerPosition(index, player, facing)
+        end
         table.insert(player.history, {
             x = x,
             y = y,
@@ -2409,7 +2446,13 @@ function Featherfall:enterPlatformMode(source)
     local target_x, target_y = self:getPlatformEnterPosition(source, Game.world.player)
     self.transition_platform_target_x = target_x
     self.transition_platform_target_y = target_y
-    self:spawnTransitionProp("jump_down", target_x, target_y, nil, {kind = "enter", manual_speed = 0.25})
+    self:spawnTransitionProp("jump_down", target_x, target_y, nil, {
+        kind = "enter",
+        role = "leader",
+        core_duration = self.transition_timemax,
+        duration = self.transition_timer,
+        manual_speed = 0.25,
+    })
     self:putFollowersInState(source, {
         transition_pending = true,
         leader_x = target_x or Game.world.player.x,
@@ -2537,9 +2580,15 @@ function Featherfall:postUpdate()
             self:restoreOverworldCamera()
         end
     end
-    if self.pending_platform and self.transition_timer <= self.transition_timemax - self.constants.transition_platform_delay then
-        self.pending_platform = false
+    if self.pending_platform and self.transition_timer <= 0 then
         self:putPlayerInState(self.transition_source)
+        self.pending_platform = false
+        Assets.playSound(self.sounds.transition_flip, nil, 1.3)
+        for _, petalwing in ipairs(self.petalwings or {}) do
+            if petalwing and petalwing.parent and petalwing.beginPlatformDisperse then
+                petalwing:beginPlatformDisperse()
+            end
+        end
     end
 end
 

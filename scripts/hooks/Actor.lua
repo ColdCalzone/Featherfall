@@ -163,6 +163,7 @@ local DEFAULT_PLATFORM_DATA = {
         size = {20, 38},
         hitbox = {0, 0, 20, 38},
         base_sprite = "party/susie/platform/idle",
+        transition_exit_offset = {-44, 0},
         animations = {
             idle = {sprite = "party/susie/platform/idle", speed = DR_ANIM_SPEED, loop = true},
             run = {
@@ -228,6 +229,7 @@ local DEFAULT_PLATFORM_DATA = {
         hitbox = {0, 0, 20, 38},
         base_sprite = "party/ralsei/platform/idle",
         follow_distance_bonus = 40,
+        transition_exit_offset = {34, 0},
         animations = {
             idle = {sprite = "party/ralsei/platform/idle", speed = DR_ANIM_SPEED, loop = true},
             run = {
@@ -468,6 +470,21 @@ function Actor:getPlatformHitbox()
 
     local width, height = self:getPlatformSize()
     return 0, 0, width, height
+end
+
+function Actor:getPlatformTransitionExitOffset(index, total)
+    local data = self:getPlatformData()
+    local offset = data and data.transition_exit_offset
+    if type(offset) == "function" then
+        return offset(self, index, total)
+    elseif type(offset) == "table" then
+        return offset[1] or 0, offset[2] or 0
+    end
+
+    index = math.max(index or 1, 1)
+    local side = index % 2 == 1 and -1 or 1
+    local ring = math.floor((index + 1) / 2)
+    return side * ring * 40, 0
 end
 
 function Actor:getPlatformOffset(name, facing, width, height)

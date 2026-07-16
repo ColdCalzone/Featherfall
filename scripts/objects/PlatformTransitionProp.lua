@@ -23,6 +23,8 @@ function PlatformTransitionProp:init(actor, x, y, facing, animation_name, durati
     self.target_y = target_y or y
     self.start_frame = start_frame
     self.transition_kind = options.kind or "linear"
+    self.transition_role = options.role or "leader"
+    self.core_duration = math.max(options.core_duration or (Featherfall and Featherfall.transition_timemax) or self.duration, 1)
     self.manual_speed = options.manual_speed or 0.25
     self.fallmode = options.fallmode or options.fall_mode or 0
     self.fall_vspeed = options.fall_vspeed or 0
@@ -118,14 +120,32 @@ function PlatformTransitionProp:updateManualAnimation()
     self.sprite:setFrame(self.manual_frame)
 end
 
-function PlatformTransitionProp:setTarget(x, y, duration, kind)
-    self.start_x = self.x
-    self.start_y = self.y
-    self.target_x = x or self.x
-    self.target_y = y or self.y
-    self.duration = math.max(duration or self.duration, 1)
-    self.transition_kind = kind or "linear"
-    self.timer = 0
+function PlatformTransitionProp:findPlatformGroundY(x, y)
+    if not PlatformEntity then
+        return
+    end
+
+    local old_x, old_y = self.x, self.y
+    self.x = x or self.x
+    self.y = y or self.y
+    Object.uncache(self)
+
+    local entity = PlatformEntity(self, Featherfall.constants)
+    local hitbox = {0, 0, self.width, self.height}
+    if self.actor and self.actor.getPlatformHitbox then
+        hitbox = {self.actor:getPlatformHitbox()}
+    end
+    entity:setHitbox(unpack(hitbox))
+    local ground = entity:findGroundAt(self.x, self.y, 706)
+    if ground then
+        entity:landOn(ground)
+    end
+    local ground_y = ground and self.y or nil
+
+    self.x = old_x
+    self.y = old_y
+    Object.uncache(self)
+    return ground_y
 end
 
 function PlatformTransitionProp:getTransitionY(progress)
@@ -133,10 +153,24 @@ function PlatformTransitionProp:getTransitionY(progress)
         return Utils.ease(self.start_y, self.target_y, progress, "inOutCubic")
     end
 
-    local hover_y = self.target_y - 20
-    local hover_duration = math.max(self.duration - 2, 1)
-    local hover_progress = math.min(self.timer / hover_duration, 1)
-    return Utils.ease(self.start_y, hover_y, hover_progress, "inOutCubic")
+    if self.core_duration > 25 then
+        return Utils.ease(self.start_y, self.target_y, math.min(self.timer / self.core_duration, 1), "inOutCubic")
+    end
+
+    local follower = self.transition_role == "follower"
+    local hover_offset = follower and 30 or 20
+    local first_duration = math.max(self.core_duration - (follower and 6 or 2), 1)
+    local second_delay = math.max(self.core_duration - (follower and 6 or 1), 0)
+    local second_duration = follower and 14 or 10
+    local hover_y = self.target_y - hover_offset
+
+    if self.timer <= first_duration then
+        return Utils.ease(self.start_y, hover_y, self.timer / first_duration, "inOutCubic")
+    elseif self.timer < second_delay then
+        return hover_y
+    end
+
+    return Utils.ease(hover_y, self.target_y, (self.timer - second_delay) / second_duration, "inBack")
 end
 
 function PlatformTransitionProp:collidesWithPlatformMarker(predicate)
@@ -218,7 +252,11 @@ function PlatformTransitionProp:update()
 
     self.timer = self.timer + DTMULT
     local progress = math.min(self.timer / self.duration, 1)
-    self.x = Utils.ease(self.start_x, self.target_x, progress, "inOutCubic")
+    local x_progress = progress
+    if self.transition_kind == "enter" then
+        x_progress = math.min(self.timer / self.core_duration, 1)
+    end
+    self.x = Utils.ease(self.start_x, self.target_x, x_progress, "inOutCubic")
     self.y = self:getTransitionY(progress)
 
     if progress >= 1 then

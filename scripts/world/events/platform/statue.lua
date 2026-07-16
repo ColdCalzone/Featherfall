@@ -58,6 +58,11 @@ function PlatformStatue:getPlatformEnterPosition(player)
     local target_x = self.platform_x or center_x
     local target_y = self.platform_y
 
+    if target_y == nil then
+        local floortex = self:getLinkedFloortex()
+        target_y = floortex and (floortex.y_plat or floortex.y) or nil
+    end
+
     if player and self.platform_snap_range then
         local distance = MathUtils.dist(player.x, player.y, center_x, self.y_ow)
         if distance >= self.platform_snap_range then
@@ -217,12 +222,12 @@ function PlatformStatue:beginEnterEffects()
     self.wings_timer = self.wings_timemax
 
     local fixate = Featherfall.transition_prop and Featherfall.transition_prop.parent and Featherfall.transition_prop or nil
-    local petal_x = (self.x + (self.width / 2))
-    local petal_y = (self.y + (self.height / 2))
-    local layer = WORLD_LAYERS["above_events"]
+    local petal_x = fixate and fixate.x or (self.x + (self.width / 2))
+    local petal_y = fixate and fixate.y or (self.y + (self.height / 2))
+    local layer = fixate and fixate.layer or WORLD_LAYERS["above_events"]
 
     Featherfall:clearPetalWings(true)
-    local petalwing = Featherfall:spawnPetalWing(petal_x, petal_y, {
+    Featherfall:spawnPetalWing(petal_x, petal_y, {
         fixate = fixate,
         transition_time = Featherfall.transition_timemax,
         layer = layer,
@@ -237,7 +242,18 @@ function PlatformStatue:beginEnterEffects()
         curve = 0,
         banding = 2,
         fading = false,
-        layer = ((petalwing and petalwing.layer) or layer) - 0.001,
+        layer = layer + 0.001,
+    })
+    Featherfall:makeRipple(self.x + (self.width / 2), self.y + (self.height / 2), {
+        life = 8,
+        color = 16777215,
+        radmax = 50,
+        radstart = 15,
+        thickness = 20,
+        curve = 0,
+        banding = 2,
+        fading = false,
+        layer = self.layer + 0.001,
     })
 end
 

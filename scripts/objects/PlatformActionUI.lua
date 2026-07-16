@@ -54,6 +54,56 @@ function PlatformActionUI:init()
     self.soul_y = nil
     self.soul_target_key = nil
     self.soul_afterimages = {}
+    self.targetmode_alpha = 0
+    self.description_target = nil
+    self.description_value = nil
+    self.description_text = DialogueText("", 0, 0, SCREEN_WIDTH - 40, 60, {
+        style = "none",
+        font = "main",
+        line_offset = 0,
+        wrap = false,
+    })
+    self.description_text.skippable = false
+    self.description_text.can_advance = false
+    self.description_text.visible = false
+    self:addChild(self.description_text)
+end
+
+function PlatformActionUI:getTargetModeDescription(state)
+    if not (state and state.targetmode and state.targetindex and state.targetindex >= 1) then
+        return
+    end
+    local target = state.act_targets and state.act_targets[state.targetindex]
+    if not target then
+        return
+    end
+    local description = state.hlit_blocked and "The enemy is guarding against ACTS!" or (state.hlit_desc or "")
+    return target, "* " .. description
+end
+
+function PlatformActionUI:syncTargetModeDescription(state)
+    local target, description = self:getTargetModeDescription(state)
+    if not target then
+        self.description_text.visible = false
+        self.description_target = nil
+        self.description_value = nil
+        return
+    end
+
+    self.description_text.visible = true
+    if target ~= self.description_target or description ~= self.description_value then
+        self.description_target = target
+        self.description_value = description
+        self.description_text:setText(description)
+    end
+end
+
+function PlatformActionUI:update()
+    local state = getPlayerState()
+    local target_alpha = state and state.targetmode and 1 or 0
+    self.targetmode_alpha = MathUtils.approach(self.targetmode_alpha or 0, target_alpha, 0.2 * DTMULT)
+    self:syncTargetModeDescription(state)
+    super.update(self)
 end
 
 function PlatformActionUI:getTargets()
@@ -389,7 +439,7 @@ function PlatformActionUI:drawTargetModeOverlay()
     end
 
     local x, y, width, height = camera:getRect(false)
-    Draw.setColor(0, 0, 0, 0.3)
+    Draw.setColor(0, 0, 0, 0.3 * (self.targetmode_alpha or 0))
     love.graphics.rectangle("fill", x, y, width, height)
     Draw.setColor(1, 1, 1, 1)
 end
@@ -404,27 +454,63 @@ function PlatformActionUI:drawPlatformPartyMember(character)
     love.graphics.pop()
 end
 
+function PlatformActionUI:drawActionTargetOwnersOverOverlay()
+    local owners = {}
+    local seen = {}
+    for index, target in ipairs(self:getTargets()) do
+        if target.parent and target.active and not target.blocked and target.is_valid_target then
+            local owner = target.owner
+            if not (type(owner) == "table" and owner.parent) then
+                owner = target
+            end
+            if owner.visible and not seen[owner] then
+                seen[owner] = true
+                table.insert(owners, {object = owner, index = index})
+            end
+        end
+    end
+
+    table.sort(owners, function(a, b)
+        if a.object.layer == b.object.layer then
+            return a.index < b.index
+        end
+        return a.object.layer < b.object.layer
+    end)
+    for _, entry in ipairs(owners) do
+        love.graphics.push()
+        entry.object:fullDraw(false)
+        love.graphics.pop()
+    end
+end
+
 function PlatformActionUI:drawPlatformPartyOverOverlay()
     local members = {}
     local player = Game.world and Game.world.player
     if player and player.isPlatforming and player:isPlatforming() then
-        table.insert(members, player)
+        table.insert(members, {character = player, index = 0, highlighted = true})
     end
-    for _, follower in ipairs(Game.world and Game.world.followers or {}) do
+    for index, follower in ipairs(Game.world and Game.world.followers or {}) do
         if follower.isPlatforming and follower:isPlatforming() then
-            table.insert(members, follower)
+            local state = follower.platform_state
+            table.insert(members, {
+                character = follower,
+                index = index,
+                highlighted = state and state.targetmode_highlighted or false,
+            })
         end
     end
 
     table.sort(members, function(a, b)
-        if a.layer == b.layer then
-            return a.y < b.y
+        local a_rank = a.index == 0 and -2 or (a.highlighted and -1 or a.index)
+        local b_rank = b.index == 0 and -2 or (b.highlighted and -1 or b.index)
+        if a_rank == b_rank then
+            return a.index > b.index
         end
-        return a.layer < b.layer
+        return a_rank > b_rank
     end)
 
-    for _, member in ipairs(members) do
-        self:drawPlatformPartyMember(member)
+    for _, entry in ipairs(members) do
+        self:drawPlatformPartyMember(entry.character)
     end
     Draw.setColor(1, 1, 1, 1)
 end
@@ -457,18 +543,21 @@ function PlatformActionUI:drawTargetModeText(state)
             love.graphics.print("-->  " .. (state.hlit_name or ""), camera_x + 20 + (16 * (#label + 1)), strip_y + 10)
         end
 
-        local desc
-        if (not state.targetindex or state.targetindex < 1) and state.getNoTargetDescription then
-            desc = state:getNoTargetDescription()
-        elseif #(state.act_targets or {}) == 0 then
-            desc = "* No ACTs are available."
-        elseif not state.targetindex or state.targetindex < 1 then
-            desc = "* Press a direction to select an ACT."
-        else
-            desc = "* " .. (state.hlit_blocked and "The enemy is guarding against ACTS!" or (state.hlit_desc or ""))
+        if not state.targetindex or state.targetindex < 1 then
+            local desc
+            if state.getNoTargetDescription then
+                desc = state:getNoTargetDescription()
+            elseif #(state.act_targets or {}) == 0 then
+                desc = "* No ACTs are available."
+            else
+                desc = "* Press a direction to select an ACT."
+            end
+            love.graphics.print(desc, camera_x + 20, strip_y + 40)
         end
-        love.graphics.print(desc, camera_x + 20, strip_y + 40)
     end
+
+    self.description_text.x = camera_x + 20
+    self.description_text.y = strip_y + 40
 
     if old_font then
         love.graphics.setFont(old_font)
@@ -484,6 +573,7 @@ function PlatformActionUI:draw()
     local state = getPlayerState()
     if state and state.targetmode then
         self:drawTargetModeOverlay()
+        self:drawActionTargetOwnersOverOverlay()
         self:drawPlatformPartyOverOverlay()
     end
 
@@ -505,6 +595,7 @@ function PlatformActionUI:draw()
         self.soul_target_key = nil
         self.soul_afterimages = {}
     end
+    super.draw(self)
 end
 
 return PlatformActionUI

@@ -32,6 +32,7 @@ function PetalWing:init(x, y, options)
     self.flash_white = options.flash_white or 15
     self.flash_whitemax = options.flash_whitemax or 15
     self.petals = {}
+    self.renderers = {}
     self.layer = options.layer or WORLD_LAYERS["above_events"]
     self.disperse_when_platform = options.disperse_when_platform ~= false
 
@@ -57,19 +58,34 @@ function PetalWing:init(x, y, options)
             direction = 0,
             x = x,
             y = y,
+            previous_x = x,
+            draw_side = love.math.random(0, 1) == 0 and -1 or 1,
         })
     end
 end
 
 function PetalWing:getFollowTarget()
-    local player = Game.world and Game.world.player
-    if player and Featherfall and player.state == Featherfall.state then
-        return player
-    end
     if self.fixate and self.fixate.parent then
         return self.fixate
     end
-    return player
+    return Game.world and Game.world.player
+end
+
+function PetalWing:getRenderLayer(side)
+    local target = self:getFollowTarget()
+    local layer = (target and target.layer) or self.layer
+    return layer + ((side or 1) * 0.01)
+end
+
+function PetalWing:onAdd(parent)
+    super.onAdd(self, parent)
+    if not (Game.world and PetalWingRenderer) then
+        return
+    end
+
+    self.renderers[0] = Game.world:spawnObject(PetalWingRenderer(self, 0), self:getRenderLayer(0))
+    self.renderers[-1] = Game.world:spawnObject(PetalWingRenderer(self, -1), self:getRenderLayer(-1))
+    self.renderers[1] = Game.world:spawnObject(PetalWingRenderer(self, 1), self:getRenderLayer(1))
 end
 
 function PetalWing:disperse()
@@ -81,8 +97,19 @@ function PetalWing:disperse()
     end
 end
 
+function PetalWing:beginPlatformDisperse()
+    if self.timerstart then
+        return
+    end
+    Assets.playSound(Featherfall.sounds.petal_drain, 1, 1.2)
+    self.timerstart = true
+    self:disperse()
+    self.dispersing = true
+end
+
 function PetalWing:updatePetal(petal)
     petal.t = petal.t + DTMULT
+    petal.previous_x = petal.x or self.x
 
     if not petal.dispersed then
         local progress = easeOutPower(self.timer / self.transition_time, 2)
@@ -94,9 +121,16 @@ function PetalWing:updatePetal(petal)
         petal.x = (petal.x or self.x) + (math.cos(petal.direction) * petal.speed * DTMULT)
         petal.y = (petal.y or self.y) + (math.sin(petal.direction) * petal.speed * DTMULT)
         petal.speed = petal.speed * (0.95 ^ DTMULT)
+        petal.speed = MathUtils.approach(petal.speed, 0, 0.2 * DTMULT)
         petal.fade_timer = MathUtils.approach(petal.fade_timer or 0, 0, DTMULT)
         petal.alpha = MathUtils.clamp((petal.fade_timer or 0) / 15, 0, 1)
     end
+
+    local horizontal_sign = MathUtils.sign((petal.x or self.x) - petal.previous_x)
+    if horizontal_sign == 0 then
+        horizontal_sign = petal.bg_side
+    end
+    petal.draw_side = horizontal_sign > 0 and -1 or 1
 
     petal.xscale = math.cos(petal.t * petal.ff) * petal.scale
     petal.yscale = math.sin(petal.t * petal.ff) * petal.scale
@@ -118,11 +152,9 @@ function PetalWing:update()
     if self.disperse_when_platform and not self.timerstart
         and Featherfall and Game.world and Game.world.player
         and Game.world.player.state == Featherfall.state
+        and Featherfall.transition_timer <= 0
     then
-        Assets.playSound(Featherfall.sounds.petal_drain, 1, 1.2)
-        self.timerstart = true
-        self:disperse()
-        self.dispersing = true
+        self:beginPlatformDisperse()
     end
 
     self.timer = self.timer + DTMULT
@@ -141,6 +173,12 @@ function PetalWing:update()
 end
 
 function PetalWing:onRemove(parent)
+    for _, renderer in pairs(self.renderers or {}) do
+        if renderer and renderer.parent then
+            renderer:remove()
+        end
+    end
+    self.renderers = {}
     if Featherfall and Featherfall.unregisterPetalWing then
         Featherfall:unregisterPetalWing(self)
     end
@@ -156,7 +194,6 @@ function PetalWing:drawPetal(petal)
     local origin_x = metadata and metadata.origin_x or (texture:getWidth() / 2)
     local origin_y = metadata and metadata.origin_y or (texture:getHeight() / 2)
     local alpha = petal.alpha or 1
-    local flash = self.flash_whitemax > 0 and MathUtils.clamp((self.flash_white or 0) / self.flash_whitemax, 0, 1) or 0
     Draw.setColor(1, 1, 1, alpha)
     Draw.draw(
         texture,
@@ -168,26 +205,18 @@ function PetalWing:drawPetal(petal)
         origin_x,
         origin_y
     )
-    if flash > 0 then
-        Draw.setColor(1, 1, 1, alpha * flash * 0.8)
-        Draw.draw(
-            texture,
-            (petal.x or self.x) - self.x,
-            (petal.y or self.y) - self.y,
-            math.rad(petal.angle or 0),
-            petal.xscale or 2,
-            petal.yscale or 2,
-            origin_x,
-            origin_y
-        )
-    end
     Draw.setColor(1, 1, 1, 1)
 end
 
-function PetalWing:draw()
+function PetalWing:drawPetals(side)
     for _, petal in ipairs(self.petals) do
-        self:drawPetal(petal)
+        if side == nil or petal.draw_side == side then
+            self:drawPetal(petal)
+        end
     end
+end
+
+function PetalWing:draw()
 end
 
 return PetalWing

@@ -740,6 +740,7 @@ end
 function PlayerPlatformState:clearTargetModeHighlights()
     self.targetmode_highlighted = false
     self.targetmode_outline_kind = nil
+    self.targetmode_outline_dark = false
     for _, follower in ipairs(Game.world and Game.world.followers or {}) do
         local state = follower.platform_state
         if state then
@@ -772,8 +773,13 @@ function PlayerPlatformState:updateTargetModeOutline()
     if color then
         r, g, b = color[1], color[2], color[3]
     end
-    local amount = 0.8 + (math.sin(Kristal.getTime() * 10) * 0.2)
-    fx:setColor(MathUtils.lerp(r, 1, amount), MathUtils.lerp(g, 1, amount), MathUtils.lerp(b, 1, amount), 1)
+    if self.targetmode_outline_dark then
+        local amount = 0.6 + (math.sin(Kristal.getTime() * 5) * 0.2)
+        fx:setColor(MathUtils.lerp(r, 0, amount), MathUtils.lerp(g, 0, amount), MathUtils.lerp(b, 0, amount), 1)
+    else
+        local amount = 0.8 + (math.sin(Kristal.getTime() * 10) * 0.2)
+        fx:setColor(MathUtils.lerp(r, 1, amount), MathUtils.lerp(g, 1, amount), MathUtils.lerp(b, 1, amount), 1)
+    end
 end
 
 function PlayerPlatformState:isTargetValid(target, camera_x, camera_y, camera_width, camera_height)
@@ -989,6 +995,9 @@ function PlayerPlatformState:beginTargetMode()
         target.hoverlerp = 0
     end
     self.act_targets = self:collectActionTargets()
+    self.targetmode_highlighted = true
+    self.targetmode_outline_kind = nil
+    self.targetmode_outline_dark = true
     if #self.act_targets == 0 then
         self.hlit_target = -0.5
     end
@@ -1185,6 +1194,7 @@ function PlayerPlatformState:setHoveredTarget(index, silent)
         self.hlit_label = "No ACT"
         self.hlit_label_color = {0.5, 0.5, 0.5}
         self.targetmode_highlighted = true
+        self.targetmode_outline_dark = true
         if not silent and old_index ~= self.targetindex and #self.act_targets > 0 then
             Assets.playSound(Featherfall.sounds.action_fail)
         end
@@ -2076,6 +2086,8 @@ function PlayerPlatformState:onEnter(old_state, settings)
     self.hlit_label = "No ACT"
     self.hlit_label_color = {0.5, 0.5, 0.5}
     self.targetmode_highlighted = false
+    self.targetmode_outline_kind = nil
+    self.targetmode_outline_dark = false
     self.actions:reset()
 
     self:setPlayerAnimation("idle")
@@ -2306,6 +2318,8 @@ function PlayerPlatformState:onExit(next_state)
     self.player:removeFX("platform_targetmode_outline")
     self.player:removeFX("platform_heartmode_outline")
     self.targetmode_highlighted = false
+    self.targetmode_outline_kind = nil
+    self.targetmode_outline_dark = false
     self.actions:reset()
 
     self.player:resetSprite()
