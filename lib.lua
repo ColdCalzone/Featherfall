@@ -7,6 +7,8 @@ local Featherfall = {
     transition_mode = 0,
     transition_projection_hold = 0,
     transition_source = nil,
+    transition_platform_target_x = nil,
+    transition_platform_target_y = nil,
     transition_prop = nil,
     follower_transition_props = {},
     transition_visual_owner = nil,
@@ -931,9 +933,55 @@ function Featherfall:getPlatformCameraState(camera)
             extra_targets = {},
             extra_target_markers = {},
             extra_target_lerp = 1,
+            transition_offset_start_x = nil,
+            transition_offset_start_y = nil,
+            transition_offset_end_x = 0,
+            transition_offset_end_y = 0,
         }
     end
     return self.platform_camera
+end
+
+function Featherfall:beginPlatformCameraTransition(prop)
+    local camera = Game.world and Game.world.camera
+    if not (camera and prop) then
+        return
+    end
+
+    local state = self:getPlatformCameraState(camera)
+    state.transition_offset_start_x = camera.x - prop.x
+    state.transition_offset_start_y = camera.y - prop.y
+    state.transition_offset_end_x = 0
+    state.transition_offset_end_y = 0
+end
+
+function Featherfall:setPlatformCameraTransitionEnd(x, y)
+    local camera = Game.world and Game.world.camera
+    local prop = self.transition_prop
+    if not (camera and prop and x and y) then
+        return
+    end
+
+    local state = self:getPlatformCameraState(camera)
+    state.transition_offset_end_x = x - prop.target_x
+    state.transition_offset_end_y = y - prop.target_y
+end
+
+function Featherfall:getPlatformCameraTransitionOffset(state)
+    if self.transition_timer <= 0 or state.transition_offset_start_x == nil then
+        return 0, 0
+    end
+
+    local duration = math.max(self.transition_timemax, 1)
+    local progress
+    if self.transition_mode == 1 then
+        progress = 1 - ((self.transition_timer - self.transition_extra_time) / duration)
+    else
+        progress = 1 - (self.transition_timer / duration)
+    end
+    progress = self:easeInOutPower(MathUtils.clamp(progress, 0, 1), 3)
+    return MathUtils.lerp(state.transition_offset_start_x, state.transition_offset_end_x or 0, progress),
+        MathUtils.lerp(state.transition_offset_start_y, state.transition_offset_end_y or 0, progress)
 end
 
 function Featherfall:nudgePlatformCamera(nudgex, nudgey, rate)
@@ -990,8 +1038,9 @@ function Featherfall:updatePlatformCamera()
     state.lerptime_h = math.min((state.lerptime_h or lerpmax) + ((state.zone_lerpstrength or 1) * DTMULT), lerpmax)
     state.lerptime_v = math.min((state.lerptime_v or lerpmax) + ((state.zone_lerpstrength or 1) * DTMULT), lerpmax)
 
-    local tx = camera_target.x
-    local ty = camera_target.y
+    local transition_offset_x, transition_offset_y = self:getPlatformCameraTransitionOffset(state)
+    local tx = camera_target.x + transition_offset_x
+    local ty = camera_target.y + transition_offset_y
     local player_state = player.platform_state
     local entity = player_state and player_state.entity
     local grounded = entity and entity.grounded
@@ -1928,6 +1977,8 @@ end
 
 function Featherfall:beginTransition(source, target_mode)
     self.transition_source = source
+    self.transition_platform_target_x = nil
+    self.transition_platform_target_y = nil
     self.transition_timemax = type(source) == "table" and source.timer_max or self.constants.transition_timemax
     self.transition_extra_time = 0
     self.transition_mode = target_mode or self.transition_mode or 0
@@ -2115,6 +2166,7 @@ function Featherfall:spawnTransitionProp(animation_name, target_x, target_y, sta
         self.transition_prop:setLayer(player.layer)
     end
     self:hidePlayerVisual()
+    self:beginPlatformCameraTransition(self.transition_prop)
     return self.transition_prop
 end
 
@@ -2139,7 +2191,7 @@ function Featherfall:spawnFollowerTransitionProp(follower, animation_name, start
         start_y or follower.y,
         facing,
         animation_name or "jump_down",
-        self.transition_timemax,
+        options.duration or self.transition_timemax,
         target_x or follower.x,
         target_y or follower.y,
         start_frame,
@@ -2161,12 +2213,33 @@ function Featherfall:putPlayerInState(source, settings)
             self:resetPlatformCamera()
         end
         settings = settings or {}
+        local target_x = settings.target_x
+        local target_y = settings.target_y
+        if self.pending_platform then
+            if target_x == nil then
+                target_x = self.transition_platform_target_x
+            end
+            if target_y == nil then
+                target_y = self.transition_platform_target_y
+            end
+        end
+        if target_x ~= nil then
+            Game.world.player.x = target_x
+        end
+        if target_y ~= nil then
+            Game.world.player.y = target_y
+        end
+        if target_x ~= nil or target_y ~= nil then
+            Object.uncache(Game.world.player)
+        end
         settings.source = source
         Game.world.player:setState(self.state, settings)
         if self.transition_prop and self.transition_prop.parent then
             self.transition_prop:setTarget(Game.world.player.x, Game.world.player.y, self.constants.transition_platform_delay, "linear")
         end
         self.platforming = true
+        self.transition_platform_target_x = nil
+        self.transition_platform_target_y = nil
         return true
     end
     return false
@@ -2194,18 +2267,28 @@ function Featherfall:getPlatformFollowerHistoryDistance(follower, index)
     return math.max(index, 1) * 6
 end
 
-function Featherfall:putFollowersInState(source)
+function Featherfall:putFollowersInState(source, settings)
     if not (Game.world and Game.world.followers) then
         return
     end
 
+    settings = settings or {}
     for index, follower in ipairs(Game.world.followers) do
         if follower.state_manager and follower.state_manager:hasState(self.state) then
-            follower.state_manager:setState(self.state, {
-                source = source,
-                index = index,
-                x_offset = self:getPlatformFollowerOffset(follower, index),
-            })
+            if follower.state_manager.state == self.state and follower.platform_state then
+                if settings.transition_pending == true or self.transition_timer <= 0 then
+                    follower.platform_state.transition_entry_pending = settings.transition_pending == true
+                end
+            else
+                follower.state_manager:setState(self.state, {
+                    source = source,
+                    index = index,
+                    x_offset = self:getPlatformFollowerOffset(follower, index),
+                    transition_pending = settings.transition_pending == true,
+                    leader_x = settings.leader_x,
+                    leader_y = settings.leader_y,
+                })
+            end
         else
             follower.visible = false
             follower.alpha = 0
@@ -2324,7 +2407,14 @@ function Featherfall:enterPlatformMode(source)
     self:beginTransition(source, 1)
     Assets.playSound(self.sounds.enter)
     local target_x, target_y = self:getPlatformEnterPosition(source, Game.world.player)
+    self.transition_platform_target_x = target_x
+    self.transition_platform_target_y = target_y
     self:spawnTransitionProp("jump_down", target_x, target_y, nil, {kind = "enter", manual_speed = 0.25})
+    self:putFollowersInState(source, {
+        transition_pending = true,
+        leader_x = target_x or Game.world.player.x,
+        leader_y = target_y or Game.world.player.y,
+    })
     self.pending_platform = true
     return true
 end
@@ -2355,6 +2445,10 @@ function Featherfall:exitPlatformMode(source, options)
     self.platforming = false
     self.camera_restore_pending = true
     Game.world.player:setState("WALK")
+    if Game.world.camera then
+        local camera_x, camera_y = Game.world.camera:getTargetPosition()
+        self:setPlatformCameraTransitionEnd(camera_x, camera_y)
+    end
     if self.transition_prop and self.transition_prop.parent then
         self:hidePlayerVisual()
     end
@@ -2391,6 +2485,8 @@ function Featherfall:finishPlatformMapTransfer(transfer)
     self.transition_extra_time = 0
     self.transition_projection_hold = 0
     self.transition_source = nil
+    self.transition_platform_target_x = nil
+    self.transition_platform_target_y = nil
     self.transition_prop = nil
     self.follower_transition_props = {}
     self.transition_visual_owner = nil

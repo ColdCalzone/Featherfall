@@ -1317,6 +1317,7 @@ function FollowerPlatformState:onEnter(old_state, settings)
     self.turn_facing = nil
     self.important_blend = 1
     self.menu_pause_active = false
+    self.transition_entry_pending = settings.transition_pending == true
     self.targetmode_sprite_pause = nil
     self.hspeed = settings.hspeed or 0
     self.vspeed = settings.vspeed or 0
@@ -1372,8 +1373,8 @@ function FollowerPlatformState:onEnter(old_state, settings)
 
     local player = Game.world and Game.world.player
     if player then
-        self.follower.x = player.x + (settings.x_offset or self:getInitialOffset())
-        self.follower.y = player.y
+        self.follower.x = (settings.leader_x or player.x) + (settings.x_offset or self:getInitialOffset())
+        self.follower.y = settings.leader_y or player.y
         self.follower.layer = player.layer
         Object.uncache(self.follower)
     end
@@ -1412,7 +1413,11 @@ function FollowerPlatformState:onEnter(old_state, settings)
             self.follower.x,
             self.follower.y,
             nil,
-            {kind = "enter", manual_speed = 0.25}
+            {
+                kind = "enter",
+                manual_speed = 0.25,
+                duration = self.transition_entry_pending and Featherfall.transition_timer or nil,
+            }
         )
     end
 
@@ -1421,6 +1426,12 @@ end
 
 function FollowerPlatformState:onUpdate()
     local player = Game.world and Game.world.player
+    if self.transition_entry_pending then
+        if Featherfall.transition_timer > 0 then
+            return
+        end
+        self.transition_entry_pending = false
+    end
     self:updateActionOutline()
     if self:updateTargetModePause(player) then
         return
@@ -1515,6 +1526,7 @@ function FollowerPlatformState:onExit(next_state)
     self.actions:reset()
     self:dropOffRalseiPlatform()
     self.menu_pause_active = false
+    self.transition_entry_pending = false
     self:setTargetModeSpritePaused(false)
     self.follower:removeFX("platform_action_outline")
     self.follower.sprite:setColor(1, 1, 1)
