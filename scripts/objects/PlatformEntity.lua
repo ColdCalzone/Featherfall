@@ -122,72 +122,19 @@ function PlatformEntity:getEventBottom(event)
 end
 
 function PlatformEntity:getPlatformEvents()
-    if not (Game.world and Game.world.map) then
-        return {}
-    end
-    local events = {}
-    for _, event in ipairs(Game.world.map.events or {}) do
-        table.insert(events, event)
-    end
-    if Featherfall and Featherfall.getDynamicPlatforms then
-        for _, platform in ipairs(Featherfall:getDynamicPlatforms()) do
-            table.insert(events, platform)
-        end
-    end
-    return events
-end
-
-function PlatformEntity:isBlockEvent(event)
-    return event
-        and event.platform_collision ~= false
-        and event.platform_block
-end
-
-function PlatformEntity:isFloorEvent(event)
-    return event
-        and event.platform_collision ~= false
-        and (
-        event.platform_floor
-        or event.platform_floortex_floor
-        or event.platform_floortex_yplat
-    )
-end
-
-function PlatformEntity:isRideableEvent(event)
-    return event
-        and event.platform_collision ~= false
-        and event.rideable
-        and event.is_entity
+    return Featherfall:getPlatformEvents()
 end
 
 function PlatformEntity:getBlocks()
-    local blocks = {}
-    for _, event in ipairs(self:getPlatformEvents()) do
-        if self:isBlockEvent(event) then
-            table.insert(blocks, event)
-        end
-    end
-    return blocks
+    return Featherfall:getBlocks()
 end
 
 function PlatformEntity:getFloors()
-    local floors = {}
-    for _, event in ipairs(self:getPlatformEvents()) do
-        if self:isFloorEvent(event) then
-            table.insert(floors, event)
-        end
-    end
-    return floors
+    return Featherfall:getFloors()
 end
 
 function PlatformEntity:getRideables()
-    local rideables = {}
-    for _, event in ipairs(self:getPlatformEvents()) do
-        if self:isRideableEvent(event) then
-            table.insert(rideables, event)
-        end
-    end
-    return rideables
+    return Featherfall:getRideables()
 end
 
 function PlatformEntity:getSlopeSampleX(ground, x, y)

@@ -279,6 +279,11 @@ function PlatformActorState:drawPlatformDebug(r, g, b)
                 love.graphics.print(line, x, y - 10 - ((#lines - index) * 10), 0, 0.5, 0.5)
             end
         end
+
+        love.graphics.setColor(1, 0, 0, 1)
+        print(x)
+        love.graphics.line(width / 2 - self.hspeed, height / 2, width / 2 + self.hspeed, height / 2)
+
         love.graphics.setColor(1, 1, 1, 1)
         return
     end

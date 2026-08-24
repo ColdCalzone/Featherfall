@@ -29,6 +29,12 @@ local Featherfall = {
     platform_hitstop = 0,
     platform_hitstop_pending = 0,
     camera_restore_pending = false,
+
+    known_events = {
+        block = nil,
+        floor = nil,
+        rideable = nil,
+    },
 }
 
 _G.Featherfall = Featherfall
@@ -675,6 +681,17 @@ end
 function Featherfall:addDynamicPlatform(platform)
     self.dynamic_platforms = self.dynamic_platforms or {}
     table.insert(self.dynamic_platforms, platform)
+
+    if self.isBlockEvent(platform) then
+        self.known_events.block = self.known_events.block or {}
+        table.insert(self.known_events.block, platform)
+    elseif self.isFloorEvent(platform) then
+        self.known_events.floor = self.known_events.floor or {}
+        table.insert(self.known_events.floor, platform)
+    elseif self.isRideableEvent(platform) then
+        self.known_events.platform = self.known_events.platform or {}
+        table.insert(self.known_events.platform, platform)
+    end
 end
 
 function Featherfall:removeDynamicPlatform(platform)
@@ -682,6 +699,18 @@ function Featherfall:removeDynamicPlatform(platform)
         if self.dynamic_platforms[index] == platform then
             table.remove(self.dynamic_platforms, index)
         end
+    end
+
+    -- TODO consider just doing the above again but switching out the known list
+    if self.isBlockEvent(platform) then
+        self.known_events.block = self.known_events.block or {}
+        self.known_events.block = nil
+    elseif self.isFloorEvent(platform) then
+        self.known_events.floor = self.known_events.floor or {}
+        self.known_events.floor = nil
+    elseif self.isRideableEvent(platform) then
+        self.known_events.platform = self.known_events.platform or {}
+        self.known_events.platform = nil
     end
 end
 
@@ -696,6 +725,86 @@ function Featherfall:getDynamicPlatforms()
         end
     end
     return platforms
+end
+
+-- Moved from PlatformEntity
+function Featherfall:getPlatformEvents()
+    if not (Game.world and Game.world.map) then
+        return {}
+    end
+    local events = { unpack(Game.world.map.events or {}) }
+    for _, platform in ipairs(self:getDynamicPlatforms()) do
+        table.insert(events, platform)
+    end
+    return events
+end
+
+function Featherfall.isBlockEvent(event)
+    return event
+        and event.platform_collision ~= false
+        and event.platform_block
+end
+
+function Featherfall.isFloorEvent(event)
+    return event
+        and event.platform_collision ~= false
+        and (
+        event.platform_floor
+        or event.platform_floortex_floor
+        or event.platform_floortex_yplat
+    )
+end
+
+function Featherfall.isRideableEvent(event)
+    return event
+        and event.platform_collision ~= false
+        and event.rideable
+        and event.is_entity
+end
+
+function Featherfall:getBlocks()
+    if self.known_events.block then
+        return { unpack(self.known_events.block) }
+    end
+
+    self.known_events.block = {}
+    for _, event in ipairs(self:getPlatformEvents()) do
+        if self.isBlockEvent(event) then
+            table.insert(self.known_events.block, event)
+        end
+    end
+
+    return { unpack(self.known_events.block) }
+end
+
+function Featherfall:getFloors()
+    if self.known_events.floor then
+        return { unpack(self.known_events.floor) }
+    end
+
+    self.known_events.floor = {}
+    for _, event in ipairs(self:getPlatformEvents()) do
+        if self.isFloorEvent(event) then
+            table.insert(self.known_events.floor, event)
+        end
+    end
+
+    return { unpack(self.known_events.floor) }
+end
+
+function Featherfall:getRideables()
+    if self.known_events.rideable then
+        return { unpack(self.known_events.rideable) }
+    end
+
+    self.known_events.rideable = {}
+    for _, event in ipairs(self:getPlatformEvents()) do
+        if self.isRideableEvent(event) then
+            table.insert(self.known_events.rideable, event)
+        end
+    end
+
+    return { unpack(self.known_events.rideable) }
 end
 
 function Featherfall:updatePlatformDifference(object)
