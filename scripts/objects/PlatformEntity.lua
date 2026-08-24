@@ -362,8 +362,6 @@ function PlatformEntity:resolveHorizontalBlocks(move_amount)
         return
     end
 
-    -- TODO: This seems like the source of all the lag.
-    -- I'm not convinced it even needs to do all these checks
     local checks = math.ceil(math.abs(move_amount or self.hspeed or 0) / self.owner.width)
     local distcheck = 1
     local max_dist = (move_amount or self.hspeed or 0)
@@ -423,6 +421,7 @@ end
 
 function PlatformEntity:landOn(ground)
     self.grounded = true
+    self.jump_boost = false
     self.ground = ground
     self.grounded_lastX = self.owner.x
     self.landspd = self.vspeed
@@ -717,7 +716,8 @@ function PlatformEntity:updateJumpInput(press_jump, key_jump, options)
     if self.jumping ~= 0 then
         self.jump_time = self.jump_time + DTMULT
     end
-    if not key_jump and self.jumping == 1 and self.jump_time >= (constants.jump_mintime or 4) and self.vspeed < 0 then
+    -- TODO: prevent this off of a slashpusher launch
+    if not key_jump and self.jumping == 1 and self.jump_time >= (constants.jump_mintime or 4) and self.vspeed < 0 and not self.jump_boost then
         self.vspeed = self.vspeed * (0.5 ^ DTMULT)
     end
 end
