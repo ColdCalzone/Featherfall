@@ -364,12 +364,14 @@ function PlatformEntity:resolveHorizontalBlocks(move_amount)
 
     -- TODO: This seems like the source of all the lag.
     -- I'm not convinced it even needs to do all these checks
-    local checks = math.ceil(math.abs(move_amount or self.hspeed or 0))
-    local distcheck = 2
+    local checks = math.ceil(math.abs(move_amount or self.hspeed or 0) / self.owner.width)
+    local distcheck = 1
+    local max_dist = (move_amount or self.hspeed or 0)
     for _ = 1, checks do
         if self.hspeed <= 0 then
-            local wall = self:findBlockAt(self.owner.x - distcheck, self.owner.y)
+            local wall = self:findBlockAt(self.owner.x - math.max(distcheck * self.owner.width, max_dist), self.owner.y)
             if wall then
+                print(self.owner.x - distcheck)
                 if self.hspeed < 0 then
                     self.wallhitspd = self.hspeed
                     self.hspeed = 0
@@ -383,8 +385,9 @@ function PlatformEntity:resolveHorizontalBlocks(move_amount)
         end
 
         if self.hspeed >= 0 then
-            wall = self:findBlockAt(self.owner.x + distcheck, self.owner.y)
+            wall = self:findBlockAt(self.owner.x + math.min(distcheck * self.owner.width, max_dist), self.owner.y)
             if wall then
+                print(self.owner.x + distcheck)
                 if self.hspeed > 0 then
                     self.wallhitspd = self.hspeed
                     self.hspeed = 0

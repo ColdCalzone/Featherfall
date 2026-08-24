@@ -281,8 +281,7 @@ function PlatformActorState:drawPlatformDebug(r, g, b)
         end
 
         love.graphics.setColor(1, 0, 0, 1)
-        print(x)
-        love.graphics.line(width / 2 - self.hspeed, height / 2, width / 2 + self.hspeed, height / 2)
+        love.graphics.line(width / 2, height / 2, width / 2 + self.hspeed * DTMULT, height / 2)
 
         love.graphics.setColor(1, 1, 1, 1)
         return

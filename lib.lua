@@ -18,7 +18,11 @@ local Featherfall = {
     platforming = false,
     floortex_projection_layers = {},
     action_ui = nil,
-    dynamic_platforms = {},
+    dynamic_platforms = {
+        block = nil,
+        floor = nil,
+        rideable = nil,
+    },
     petalwings = {},
     action_colors = {},
     action_gradients = {},
@@ -29,12 +33,6 @@ local Featherfall = {
     platform_hitstop = 0,
     platform_hitstop_pending = 0,
     camera_restore_pending = false,
-
-    known_events = {
-        block = nil,
-        floor = nil,
-        rideable = nil,
-    },
 }
 
 _G.Featherfall = Featherfall
@@ -217,7 +215,11 @@ function Featherfall:resetControllerState()
     self.platform_hitstop = 0
     self.platform_hitstop_pending = 0
     self.camera_restore_pending = false
-    self.dynamic_platforms = {}
+    self.dynamic_platforms = {
+        block = nil,
+        floor = nil,
+        rideable = nil,
+    }
     self:resetPlatformCamera()
     self:clearPetalWings(true)
     if self.action_ui and self.action_ui.parent then
@@ -679,18 +681,25 @@ function Featherfall:getPlatformCameraClampZonePair(zone)
 end
 
 function Featherfall:addDynamicPlatform(platform)
-    self.dynamic_platforms = self.dynamic_platforms or {}
-    table.insert(self.dynamic_platforms, platform)
+    self.dynamic_platforms = self.dynamic_platforms or {
+        block = nil,
+        floor = nil,
+        rideable = nil,
+        other = nil,
+    }
 
     if self.isBlockEvent(platform) then
-        self.known_events.block = self.known_events.block or {}
-        table.insert(self.known_events.block, platform)
+        self.dynamic_platforms.block = self.dynamic_platforms.block or {}
+        table.insert(self.dynamic_platforms.block, platform)
     elseif self.isFloorEvent(platform) then
-        self.known_events.floor = self.known_events.floor or {}
-        table.insert(self.known_events.floor, platform)
+        self.dynamic_platforms.floor = self.dynamic_platforms.floor or {}
+        table.insert(self.dynamic_platforms.floor, platform)
     elseif self.isRideableEvent(platform) then
-        self.known_events.platform = self.known_events.platform or {}
-        table.insert(self.known_events.platform, platform)
+        self.dynamic_platforms.rideable = self.dynamic_platforms.rideable or {}
+        table.insert(self.dynamic_platforms.rideable, platform)
+    else
+        self.dynamic_platforms.other = self.dynamic_platforms.other or {}
+        table.insert(self.dynamic_platforms.other, platform)
     end
 end
 
@@ -703,25 +712,30 @@ function Featherfall:removeDynamicPlatform(platform)
 
     -- TODO consider just doing the above again but switching out the known list
     if self.isBlockEvent(platform) then
-        self.known_events.block = self.known_events.block or {}
-        self.known_events.block = nil
+        self.dynamic_platforms.block = self.dynamic_platforms.block or {}
+        self.dynamic_platforms.block = nil
     elseif self.isFloorEvent(platform) then
-        self.known_events.floor = self.known_events.floor or {}
-        self.known_events.floor = nil
+        self.dynamic_platforms.floor = self.dynamic_platforms.floor or {}
+        self.dynamic_platforms.floor = nil
     elseif self.isRideableEvent(platform) then
-        self.known_events.platform = self.known_events.platform or {}
-        self.known_events.platform = nil
+        self.dynamic_platforms.rideable = self.dynamic_platforms.rideable or {}
+        self.dynamic_platforms.rideable = nil
+    else
+        self.dynamic_platforms.other = self.dynamic_platforms.other or {}
+        self.dynamic_platforms.other = nil
     end
 end
 
 function Featherfall:getDynamicPlatforms()
     local platforms = {}
-    for index = #(self.dynamic_platforms or {}), 1, -1 do
-        local platform = self.dynamic_platforms[index]
-        if platform and platform.parent then
-            table.insert(platforms, 1, platform)
-        else
-            table.remove(self.dynamic_platforms, index)
+    for _, group in pairs(self.dynamic_platforms) do
+        for index = #(group or {}), 1, -1 do
+            local platform = group[index]
+            if platform and platform.parent then
+                table.insert(platforms, 1, platform)
+            else
+                table.remove(group, index)
+            end
         end
     end
     return platforms
@@ -763,48 +777,48 @@ function Featherfall.isRideableEvent(event)
 end
 
 function Featherfall:getBlocks()
-    if self.known_events.block then
-        return { unpack(self.known_events.block) }
+    if self.dynamic_platforms.block then
+        return { unpack(self.dynamic_platforms.block) }
     end
 
-    self.known_events.block = {}
+    self.dynamic_platforms.block = {}
     for _, event in ipairs(self:getPlatformEvents()) do
         if self.isBlockEvent(event) then
-            table.insert(self.known_events.block, event)
+            table.insert(self.dynamic_platforms.block, event)
         end
     end
 
-    return { unpack(self.known_events.block) }
+    return { unpack(self.dynamic_platforms.block) }
 end
 
 function Featherfall:getFloors()
-    if self.known_events.floor then
-        return { unpack(self.known_events.floor) }
+    if self.dynamic_platforms.floor then
+        return { unpack(self.dynamic_platforms.floor) }
     end
 
-    self.known_events.floor = {}
+    self.dynamic_platforms.floor = {}
     for _, event in ipairs(self:getPlatformEvents()) do
         if self.isFloorEvent(event) then
-            table.insert(self.known_events.floor, event)
+            table.insert(self.dynamic_platforms.floor, event)
         end
     end
 
-    return { unpack(self.known_events.floor) }
+    return { unpack(self.dynamic_platforms.floor) }
 end
 
 function Featherfall:getRideables()
-    if self.known_events.rideable then
-        return { unpack(self.known_events.rideable) }
+    if self.dynamic_platforms.rideable then
+        return { unpack(self.dynamic_platforms.rideable) }
     end
 
-    self.known_events.rideable = {}
+    self.dynamic_platforms.rideable = {}
     for _, event in ipairs(self:getPlatformEvents()) do
         if self.isRideableEvent(event) then
-            table.insert(self.known_events.rideable, event)
+            table.insert(self.dynamic_platforms.rideable, event)
         end
     end
 
-    return { unpack(self.known_events.rideable) }
+    return { unpack(self.dynamic_platforms.rideable) }
 end
 
 function Featherfall:updatePlatformDifference(object)
