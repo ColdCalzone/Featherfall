@@ -704,25 +704,34 @@ function Featherfall:addDynamicPlatform(platform)
 end
 
 function Featherfall:removeDynamicPlatform(platform)
-    for index = #(self.dynamic_platforms or {}), 1, -1 do
-        if self.dynamic_platforms[index] == platform then
-            table.remove(self.dynamic_platforms, index)
-        end
-    end
-
-    -- TODO consider just doing the above again but switching out the known list
     if self.isBlockEvent(platform) then
         self.dynamic_platforms.block = self.dynamic_platforms.block or {}
-        self.dynamic_platforms.block = nil
+        for index = #(self.dynamic_platforms.block or {}), 1, -1 do
+            if self.dynamic_platforms.block[index] == platform then
+                table.remove(self.dynamic_platforms.block, index)
+            end
+        end
     elseif self.isFloorEvent(platform) then
         self.dynamic_platforms.floor = self.dynamic_platforms.floor or {}
-        self.dynamic_platforms.floor = nil
+        for index = #(self.dynamic_platforms.floor or {}), 1, -1 do
+            if self.dynamic_platforms.floor[index] == platform then
+                table.remove(self.dynamic_platforms.floor, index)
+            end
+        end
     elseif self.isRideableEvent(platform) then
         self.dynamic_platforms.rideable = self.dynamic_platforms.rideable or {}
-        self.dynamic_platforms.rideable = nil
+        for index = #(self.dynamic_platforms.rideable or {}), 1, -1 do
+            if self.dynamic_platforms.rideable[index] == platform then
+                table.remove(self.dynamic_platforms.rideable, index)
+            end
+        end
     else
         self.dynamic_platforms.other = self.dynamic_platforms.other or {}
-        self.dynamic_platforms.other = nil
+        for index = #(self.dynamic_platforms.other or {}), 1, -1 do
+            if self.dynamic_platforms.other[index] == platform then
+                table.remove(self.dynamic_platforms.other, index)
+            end
+        end
     end
 end
 
